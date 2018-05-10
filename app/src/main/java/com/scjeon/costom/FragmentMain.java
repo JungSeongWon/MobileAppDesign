@@ -26,6 +26,7 @@ import java.util.Locale;
 
 public class FragmentMain extends Fragment {
 
+    // git Test
     Spinner sidoNameSpinner; // 시, 도명을 선택하는 스피너
     TextView tvTempText;
     Button btnSpinner;
