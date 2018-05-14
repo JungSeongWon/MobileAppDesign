@@ -17,6 +17,7 @@ import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.util.Log;
 import android.view.View;
 import android.support.design.widget.NavigationView;
 import android.support.v4.view.GravityCompat;
@@ -28,14 +29,28 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
 
+import com.android.volley.AuthFailureError;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonObjectRequest;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.HashMap;
+import java.util.Map;
+
 // git test
 public class MainActivity extends AppCompatActivity
         implements NavigationView.OnNavigationItemSelectedListener {
 
 
     GPSInfo gi = new GPSInfo();
-    String lt, lg;
-    NetworkTask networkTask;
+    TMData tmData;
+   // NetworkTask networkTask;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -94,14 +109,55 @@ public class MainActivity extends AppCompatActivity
         if(location != null){
             gi.setLt(String.valueOf(location.getLatitude()));
             gi.setLg(String.valueOf(location.getLongitude()));
+
+            requestResponse(gi.getLt(),gi.getLg());
         }
 
-        String url = "https://dapi.kakao.com/v2/local/geo//coord2regioncode.xml";
+    }
 
-        networkTask = new NetworkTask(url,gi.getLg(),gi.getLt());
-        networkTask.execute();
+    /* GPS로 부터 받아온 현재위치(위도, 경도)를 TM으로 바꾸기 위해 http 통신 후 주소, TM_X, TM_Y 값을 가져옴.*/
+    private void requestResponse(String lat, String log){
+        String url = "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x="+log+"&y="+lat+"&input_coord=WGS84&output_coord=TM";
 
+        final RequestQueue queue = HttpVolley.getInstance(getApplicationContext()).getRequestQueue();
 
+        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(Request.Method.GET, url, new JSONObject(),networkSuccessListener(),networkErrorListener()){
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String,String> header = new HashMap<>();
+                header.put("Authorization","KakaoAK 420d614ecd66bf3b982ce99cc82bdcfa");
+                return header;
+            }
+        };
+        queue.add(jsonObjectRequest);
+    }
+
+    /* TM변환을 위한 http 통신이 성공했을 때 TMData 클래스에 결과 저장 */
+    private Response.Listener<JSONObject> networkSuccessListener(){
+        return new Response.Listener<JSONObject>() {
+            @Override
+            public void onResponse(JSONObject response) {
+                try {
+
+                    JSONArray ja = response.getJSONArray("documents");
+                    tmData = new TMData(ja.getJSONObject(1).getString("address_name"),ja.getJSONObject(1).getString("x"),ja.getJSONObject(1).getString("y"));
+
+                    Toast.makeText(getApplicationContext(),tmData.getAddress()+", "+tmData.getTm_x()+", "+tmData.getTm_y(),Toast.LENGTH_SHORT).show();
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+    }
+
+    /* TM변환을 위한 http 통신이 실패했을 때*/
+    private Response.ErrorListener networkErrorListener(){
+        return new Response.ErrorListener() {
+            @Override
+            public void onErrorResponse(VolleyError error) {
+                Toast.makeText(getApplicationContext(),"network error",Toast.LENGTH_SHORT).show();
+            }
+        };
     }
 
      // 위치가 변경되는것을 감지하기 위한 리스너
@@ -194,35 +250,6 @@ public class MainActivity extends AppCompatActivity
         DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
         drawer.closeDrawer(GravityCompat.START);
         return true;
-    }
-
-    /*좌표를 TM값으로 변환하기 위한 AsyncTask 클래스*/
-    public class NetworkTask extends AsyncTask<Void,Void,String> {
-        private String TMURL;
-        private String lat;
-        private String log;
-
-        public NetworkTask(String TMURL,String lt, String lg) {
-            this.TMURL = TMURL;
-            this.lat=lt;
-            this.log=lg;
-        }
-
-        @Override
-        protected String doInBackground(Void... voids) {
-            String result;
-            RequestHttpURLConnection requestHttpURLConnection = new RequestHttpURLConnection();
-            //Toast.makeText(getApplicationContext(),"lat : "+lat+"log : "+log,Toast.LENGTH_SHORT).show();
-            result = requestHttpURLConnection.request(TMURL,lat,log);
-
-            return result;
-        }
-
-        @Override
-        protected void onPostExecute(String s) {
-            super.onPostExecute(s);
-            Toast.makeText(getApplicationContext(),s,Toast.LENGTH_LONG).show();
-        }
     }
 
 }
