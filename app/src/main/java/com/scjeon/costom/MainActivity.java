@@ -35,12 +35,22 @@ import com.android.volley.RequestQueue;
 import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 // git test
@@ -142,7 +152,8 @@ public class MainActivity extends AppCompatActivity
                     JSONArray ja = response.getJSONArray("documents");
                     tmData = new TMData(ja.getJSONObject(1).getString("address_name"),ja.getJSONObject(1).getString("x"),ja.getJSONObject(1).getString("y"));
 
-                    Toast.makeText(getApplicationContext(),tmData.getAddress()+", "+tmData.getTm_x()+", "+tmData.getTm_y(),Toast.LENGTH_SHORT).show();
+                    getNearStation(tmData.getTm_x(),tmData.getTm_y());
+
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
@@ -160,6 +171,157 @@ public class MainActivity extends AppCompatActivity
         };
     }
 
+    /*인접한 미세먼지측정소 이름를 TM값을 통해서 알아냄 */
+    private void getNearStation(String x, String y){
+
+        String getStationURL
+                = "http://openapi.airkorea.or.kr/openapi/services/rest/MsrstnInfoInqireSvc/getNearbyMsrstnList?tmX="+x+"&tmY="+y+"&pageNo=1&numOfRows=10&ServiceKey=SKXbIW5Uk%2Bn4rUGkg1KdvU8spwr2FBTQvs3J6LF6gdaTkjmuFxJHnc36A3MOXqGo1JBUWelpR0DfEr5zLJding%3D%3D";
+        final RequestQueue queue = HttpVolley.getInstance(getApplicationContext()).getRequestQueue();
+        StringRequest request = new StringRequest(Request.Method.POST, getStationURL,
+                new Response.Listener<String>()
+                {
+                    @Override
+                    public void onResponse(String response) {
+                        Log.d("RESULT :", response.toString());
+
+                        try{
+                            String stName=null;
+
+                            InputStream inputStream = new ByteArrayInputStream(response.getBytes());
+                            InputStreamReader inputStreamReader = new InputStreamReader(inputStream,"UTF-8");
+                            XmlPullParserFactory pullParserFactory = XmlPullParserFactory.newInstance();
+                            XmlPullParser parser = pullParserFactory.newPullParser();
+                            parser.setInput(inputStreamReader);
+
+                            int parserEvent = parser.getEventType();
+                            String tag_value; // 태그에 따른 값
+
+                           ArrayList<String> stationNameArray = new ArrayList<>();
+
+                           while (parserEvent != XmlPullParser.END_DOCUMENT) {
+                                switch (parserEvent) {
+                                    case XmlPullParser.START_TAG:
+                                        tag_value = parser.getName();
+
+                                        //측정소 위치 가져오기
+                                        if (tag_value.equals("stationName")) {
+                                            stName = parser.nextText();
+                                            stationNameArray.add(stName);
+                                        }
+                                        break;
+                                }
+                                parserEvent = parser.next();
+                            }
+                            getMesureInfo(stationNameArray.get(0));
+                           stationNameArray.clear();
+
+                        }catch (Exception e){
+                            e.printStackTrace();
+                        }
+                    }
+                },
+                new Response.ErrorListener()
+                {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        // handle error response
+                    }
+                }
+        );
+        queue.add(request);
+    }
+
+    /*인접한 미세먼지측정소 이름을 통해 측정값들을 가져옴 */
+    private void getMesureInfo(final String stationName){
+
+        if(stationName != null) {
+            String getMesureURL
+                    = "http://openapi.airkorea.or.kr/openapi/services/rest/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty?stationName=" + stationName + "&dataTerm=DAILY&pageNo=1&numOfRows=1&ServiceKey=SKXbIW5Uk%2Bn4rUGkg1KdvU8spwr2FBTQvs3J6LF6gdaTkjmuFxJHnc36A3MOXqGo1JBUWelpR0DfEr5zLJding%3D%3D&ver=1.3";
+            final RequestQueue queue = HttpVolley.getInstance(getApplicationContext()).getRequestQueue();
+            StringRequest request = new StringRequest(Request.Method.POST, getMesureURL,
+                    new Response.Listener<String>() {
+                        @Override
+                        public void onResponse(String response) {
+                            Log.d("RESULT :", response.toString());
+
+                            try {
+                                String so2Value, coValue, o3Value, no2Value, pm10Value, pm25Value = null;
+
+                                InputStream inputStream = new ByteArrayInputStream(response.getBytes());
+                                InputStreamReader inputStreamReader = new InputStreamReader(inputStream, "UTF-8");
+                                XmlPullParserFactory pullParserFactory = XmlPullParserFactory.newInstance();
+                                XmlPullParser parser = pullParserFactory.newPullParser();
+                                parser.setInput(inputStreamReader);
+
+                                int parserEvent = parser.getEventType();
+                                String tag_value; // 태그에 따른 값
+
+                                StringBuilder stringBuilder = new StringBuilder();
+                                stringBuilder.append("측정소명 : "+stationName+"\n");
+
+                                while (parserEvent != XmlPullParser.END_DOCUMENT) {
+                                    switch (parserEvent) {
+                                        case XmlPullParser.START_TAG:
+                                            tag_value = parser.getName();
+
+                                            //아황산가스
+                                            if (tag_value.equals("so2Value")) {
+                                                so2Value = parser.nextText();
+                                                stringBuilder.append("아황산가스 농도 = "+so2Value+"\n");
+                                            }
+
+                                            //일산화탄소
+                                            if (tag_value.equals("coValue")) {
+                                                coValue = parser.nextText();
+                                                stringBuilder.append("일산화탄소 농도 = "+coValue+"\n");
+                                            }
+
+                                            //오존
+                                            if (tag_value.equals("o3Value")) {
+                                                o3Value = parser.nextText();
+                                                stringBuilder.append("오존 농도 = "+o3Value+"\n");
+                                            }
+
+                                            //이산화질소
+                                            if (tag_value.equals("no2Value")) {
+                                                no2Value = parser.nextText();
+                                                stringBuilder.append("이산화질소 농도 = "+no2Value+"\n");
+                                            }
+
+                                            //미세먼지
+                                            if (tag_value.equals("pm10Value")) {
+                                                pm10Value = parser.nextText();
+                                                stringBuilder.append("미세먼지 농도 = "+pm10Value+"\n");
+                                            }
+
+                                            //초미세먼지
+                                            if (tag_value.equals("pm25Value")) {
+                                                pm25Value = parser.nextText();
+                                                stringBuilder.append("초미세먼지 농도 = "+pm25Value+"\n");
+                                            }
+                                            break;
+                                    }
+                                    parserEvent = parser.next();
+                                }
+                                Toast.makeText(getApplicationContext(), stringBuilder.toString(), Toast.LENGTH_LONG).show();
+
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    },
+                    new Response.ErrorListener() {
+                        @Override
+                        public void onErrorResponse(VolleyError error) {
+                            // handle error response
+                        }
+                    }
+            );
+            queue.add(request);
+        }
+        else
+            Toast.makeText(getApplicationContext(),"측정소 위치 알수없음",Toast.LENGTH_SHORT).show();
+    }
      // 위치가 변경되는것을 감지하기 위한 리스너
     private LocationListener listener = new LocationListener() {
         @Override
